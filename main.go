@@ -50,6 +50,8 @@ var (
 	jiaJWTSigningKey *ecdsa.PublicKey
 
 	postIsuConditionTargetBaseURL string // JIAへのactivate時に登録する，ISUがconditionを送る先のURL
+
+	JIAServiceURL string
 )
 
 type Config struct {
@@ -292,15 +294,20 @@ func getUserIDFromSession(c echo.Context) (string, int, error) {
 }
 
 func getJIAServiceURL(tx *sqlx.Tx) string {
-	var config Config
-	err := tx.Get(&config, "SELECT * FROM `isu_association_config` WHERE `name` = ?", "jia_service_url")
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			log.Print(err)
-		}
-		return defaultJIAServiceURL
-	}
-	return config.URL
+	if JIAServiceURL !=""{
+	return JIAServiceURL
+} else{
+	return defaultJIAServiceURL
+}
+	//var config Config
+	//err := tx.Get(&config, "SELECT * FROM `isu_association_config` WHERE `name` = ?", "jia_service_url")
+	//if err != nil {
+	//	if !errors.Is(err, sql.ErrNoRows) {
+	//		log.Print(err)
+	//	}
+	//	return defaultJIAServiceURL
+	//}
+	//return config.URL
 }
 
 // POST /initialize
@@ -321,15 +328,16 @@ func postInitialize(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	_, err = db.Exec(
-		"INSERT INTO `isu_association_config` (`name`, `url`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `url` = VALUES(`url`)",
-		"jia_service_url",
-		request.JIAServiceURL,
-	)
-	if err != nil {
-		c.Logger().Errorf("db error : %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
+	//_, err = db.Exec(
+	//	"INSERT INTO `isu_association_config` (`name`, `url`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `url` = VALUES(`url`)",
+	//	"jia_service_url",
+	//	request.JIAServiceURL,
+	//)
+	//if err != nil {
+	//	c.Logger().Errorf("db error : %v", err)
+	//	return c.NoContent(http.StatusInternalServerError)
+	//}
+	JIAServiceURL = request.JIAServiceURL
 
 	return c.JSON(http.StatusOK, InitializeResponse{
 		Language: "go",
@@ -980,8 +988,8 @@ func getIsuConditions(c echo.Context) error {
 
 	var isuName string
 	err = db.Get(&isuName,
-		"SELECT name FROM `isu` WHERE `jia_isu_uuid` = ? AND `jia_user_id` = ?",
-		jiaIsuUUID, jiaUserID,
+		"SELECT name FROM `isu` WHERE  `jia_user_id` = ?AND `jia_isu_uuid` = ?",
+		jiaUserID,jiaIsuUUID, 
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
