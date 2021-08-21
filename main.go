@@ -161,10 +161,12 @@ type TrendCondition struct {
 }
 
 type PostIsuConditionRequest struct {
-	IsSitting bool   `json:"is_sitting"`
-	Condition string `json:"condition"`
-	Message   string `json:"message"`
+	IsSitting bool   `json:"is_sitting" db:"is_sitting"`
+	Condition string `json:"condition" db:"condition"`
+	Message   string `json:"message" db:"message"`
 	Timestamp int64  `json:"timestamp"`
+	JIAIsuUUID string `db:"jia_isu_uuid"`
+TimestampT time.Time `db:"timestamp_t"`
 }
 
 type JIAServiceRequest struct {
@@ -1167,7 +1169,7 @@ func getTrend(c echo.Context) error {
 // ISUからのコンディションを受け取る
 func postIsuCondition(c echo.Context) error {
 	// TODO: 一定割合リクエストを落としてしのぐようにしたが、本来は全量さばけるようにすべき
-	dropProbability := 0.9
+	dropProbability := 0.95
 	if rand.Float64() <= dropProbability {
 		c.Logger().Warnf("drop post isu condition request")
 		return c.NoContent(http.StatusAccepted)
@@ -1203,24 +1205,24 @@ func postIsuCondition(c echo.Context) error {
 		return c.String(http.StatusNotFound, "not found: isu")
 	}
 
-	for _, cond := range req {
+	for i, cond := range req {
 		timestamp := time.Unix(cond.Timestamp, 0)
-
 		if !isValidConditionFormat(cond.Condition) {
 			return c.String(http.StatusBadRequest, "bad request body")
 		}
+		req[i].JIAIsuUUID = jiaIsuUUID
+		req[i].TimestampT = timestamp
+	}
 
-		_, err = tx.Exec(
+		_, err = tx.NamedExec(
 			"INSERT INTO `isu_condition`"+
 				"	(`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`)"+
-				"	VALUES (?, ?, ?, ?, ?)",
-			jiaIsuUUID, timestamp, cond.IsSitting, cond.Condition, cond.Message)
+				"	VALUES (:jia_isu_uuid, :timestamp_t, :is_sitting ,:condition, :message)",
+			req)
 		if err != nil {
 			c.Logger().Errorf("db error: %v", err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
-
-	}
 
 	err = tx.Commit()
 	if err != nil {
