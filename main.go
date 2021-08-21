@@ -988,8 +988,8 @@ func getIsuConditions(c echo.Context) error {
 
 	var isuName string
 	err = db.Get(&isuName,
-		"SELECT name FROM `isu` WHERE  `jia_user_id` = ?AND `jia_isu_uuid` = ?",
-		jiaUserID,jiaIsuUUID, 
+		"SELECT name FROM `isu` WHERE  `jia_user_id` = ? AND `jia_isu_uuid` = ?",
+		jiaUserID,jiaIsuUUID,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
