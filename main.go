@@ -52,6 +52,8 @@ var (
 	postIsuConditionTargetBaseURL string // JIAへのactivate時に登録する，ISUがconditionを送る先のURL
 
 	JIAServiceURL string
+	
+	user map[string]bool
 )
 
 type Config struct {
@@ -161,12 +163,12 @@ type TrendCondition struct {
 }
 
 type PostIsuConditionRequest struct {
-	IsSitting bool   `json:"is_sitting" db:"is_sitting"`
-	Condition string `json:"condition" db:"condition"`
-	Message   string `json:"message" db:"message"`
-	Timestamp int64  `json:"timestamp"`
-	JIAIsuUUID string `db:"jia_isu_uuid"`
-TimestampT time.Time `db:"timestamp_t"`
+	IsSitting  bool      `json:"is_sitting" db:"is_sitting"`
+	Condition  string    `json:"condition" db:"condition"`
+	Message    string    `json:"message" db:"message"`
+	Timestamp  int64     `json:"timestamp"`
+	JIAIsuUUID string    `db:"jia_isu_uuid"`
+	TimestampT time.Time `db:"timestamp_t"`
 }
 
 type JIAServiceRequest struct {
@@ -296,11 +298,11 @@ func getUserIDFromSession(c echo.Context) (string, int, error) {
 }
 
 func getJIAServiceURL(tx *sqlx.Tx) string {
-	if JIAServiceURL !=""{
-	return JIAServiceURL
-} else{
-	return defaultJIAServiceURL
-}
+	if JIAServiceURL != "" {
+		return JIAServiceURL
+	} else {
+		return defaultJIAServiceURL
+	}
 	//var config Config
 	//err := tx.Get(&config, "SELECT * FROM `isu_association_config` WHERE `name` = ?", "jia_service_url")
 	//if err != nil {
@@ -479,37 +481,37 @@ func getIsuList(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	lastConditions := []IsuCondition{}
+	err = tx.Select(
+		&lastConditions,
+		"select * from `isu_condition`  join  (select `isuc`.`jia_isu_uuid`,max(`isuc`.`timestamp`) as timestamp  from isu_condition isuc join isu on isuc.jia_isu_uuid  = isu.jia_isu_uuid where jia_user_id = ? group by isuc.jia_isu_uuid) as t on `isu_condition`.`jia_isu_uuid` = t.jia_isu_uuid and `isu_condition`.`timestamp` = t.timestamp",
+		jiaUserID)
+	if err != nil {
+		c.Logger().Errorf("db error: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
 	responseList := []GetIsuListResponse{}
 	for _, isu := range isuList {
-		var lastCondition IsuCondition
-		foundLastCondition := true
-		err = tx.Get(&lastCondition, "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY `timestamp` DESC LIMIT 1",
-			isu.JIAIsuUUID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				foundLastCondition = false
-			} else {
-				c.Logger().Errorf("db error: %v", err)
-				return c.NoContent(http.StatusInternalServerError)
-			}
-		}
-
 		var formattedCondition *GetIsuConditionResponse
-		if foundLastCondition {
-			conditionLevel, err := calculateConditionLevel(lastCondition.Condition)
-			if err != nil {
-				c.Logger().Error(err)
-				return c.NoContent(http.StatusInternalServerError)
-			}
+		for _, lastCondition := range lastConditions {
+			if lastCondition.JIAIsuUUID == isu.JIAIsuUUID {
+				conditionLevel, err := calculateConditionLevel(lastCondition.Condition)
+				if err != nil {
+					c.Logger().Error(err)
+					return c.NoContent(http.StatusInternalServerError)
+				}
 
-			formattedCondition = &GetIsuConditionResponse{
-				JIAIsuUUID:     lastCondition.JIAIsuUUID,
-				IsuName:        isu.Name,
-				Timestamp:      lastCondition.Timestamp.Unix(),
-				IsSitting:      lastCondition.IsSitting,
-				Condition:      lastCondition.Condition,
-				ConditionLevel: conditionLevel,
-				Message:        lastCondition.Message,
+				formattedCondition = &GetIsuConditionResponse{
+					JIAIsuUUID:     lastCondition.JIAIsuUUID,
+					IsuName:        isu.Name,
+					Timestamp:      lastCondition.Timestamp.Unix(),
+					IsSitting:      lastCondition.IsSitting,
+					Condition:      lastCondition.Condition,
+					ConditionLevel: conditionLevel,
+					Message:        lastCondition.Message,
+				}
+				break
 			}
 		}
 
@@ -991,7 +993,7 @@ func getIsuConditions(c echo.Context) error {
 	var isuName string
 	err = db.Get(&isuName,
 		"SELECT name FROM `isu` WHERE  `jia_user_id` = ? AND `jia_isu_uuid` = ?",
-		jiaUserID,jiaIsuUUID,
+		jiaUserID, jiaIsuUUID,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1214,15 +1216,15 @@ func postIsuCondition(c echo.Context) error {
 		req[i].TimestampT = timestamp
 	}
 
-		_, err = tx.NamedExec(
-			"INSERT INTO `isu_condition`"+
-				"	(`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`)"+
-				"	VALUES (:jia_isu_uuid, :timestamp_t, :is_sitting ,:condition, :message)",
-			req)
-		if err != nil {
-			c.Logger().Errorf("db error: %v", err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+	_, err = tx.NamedExec(
+		"INSERT INTO `isu_condition`"+
+			"	(`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`)"+
+			"	VALUES (:jia_isu_uuid, :timestamp_t, :is_sitting ,:condition, :message)",
+		req)
+	if err != nil {
+		c.Logger().Errorf("db error: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
 
 	err = tx.Commit()
 	if err != nil {
